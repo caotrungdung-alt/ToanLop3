@@ -39,7 +39,11 @@ h1{font-size:1.6rem;margin:4px 0 12px;text-align:center}
 .score b{color:var(--ink);font-size:1.3rem}
 .lego{background:var(--card);border:4px solid var(--line);border-radius:28px;padding:8px 8px 4px;margin-bottom:16px;text-align:center}
 .lego svg{width:100%;max-width:340px;height:auto;display:block;margin:0 auto}
-.lego.done{box-shadow:0 0 0 6px var(--accent)}
+.lego.done{box-shadow:0 0 0 6px var(--accent);animation:hop .7s ease 3}
+@keyframes hop{50%{transform:translateY(-14px) scale(1.03)}}
+.tog{border:3px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:700;font-size:1rem;padding:6px 16px;border-radius:999px;cursor:pointer}
+.tog[aria-pressed="true"]{background:var(--bad-bg);color:var(--bad)}
+#fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:50}
 .lego .cap{margin:0 0 6px;font-weight:700;color:var(--muted)}
 .pop{animation:pop .5s ease-out;transform-box:fill-box;transform-origin:center}
 @keyframes pop{0%{transform:translateY(-40px) scale(1.2);opacity:0}70%{transform:translateY(3px) scale(1)}100%{transform:none;opacity:1}}
@@ -62,12 +66,14 @@ button.go:active{transform:translateY(4px);box-shadow:0 1px 0 var(--shadow)}
 </style>
 </head>
 <body>
+<canvas id="fx" aria-hidden="true"></canvas>
 <main>
   <h1>Luyện toán nhân chia</h1>
   <div class="bar" role="group" aria-label="Chọn dạng toán">
     <button class="chip" data-mode="mix" aria-pressed="true">Trộn</button>
     <button class="chip" data-mode="mul" aria-pressed="false">Nhân</button>
     <button class="chip" data-mode="div" aria-pressed="false">Chia</button>
+    <button class="tog" id="mute" aria-pressed="false" aria-label="Bật hoặc tắt âm thanh">🔊 Có tiếng</button>
   </div>
   <div class="score">
     <span>Câu: <b id="qnum">1</b>/10</span>
@@ -180,6 +186,87 @@ button.go:active{transform:translateY(4px);box-shadow:0 1px 0 var(--shadow)}
   {n:'toà nhà',p:[m(B,r(110,30,100,145,2)),m(R,r(105,25,110,8,2)),m(S,r(158,5,4,22,1),c(160,5,5)),m(L,r(125,45,18,14,1),r(150,45,18,14,1),r(175,45,18,14,1)),m(L,r(125,75,18,14,1),r(150,75,18,14,1),r(175,75,18,14,1)),m(L,r(125,105,18,14,1),r(150,105,18,14,1),r(175,105,18,14,1)),m(N,r(145,140,30,35,2)),m(O,r(40,90,60,85,2)),m(G,r(220,110,60,65,2)),m(K,r(10,175,300,10,2))]},
   {n:'cây thông',p:[m(N,r(145,150,30,25,2)),m(G,p('160,85 75,155 245,155')),m(G,p('160,50 90,115 230,115')),m(G,p('160,20 105,75 215,75')),m(Y,p('160,3 166,16 180,16 169,25 173,38 160,30 147,38 151,25 140,16 154,16')),m(R,c(140,128,6),c(185,132,6),c(165,98,6),c(150,68,6)),m(B,c(112,142,6),c(210,142,6),c(130,100,6),c(190,98,6)),m(R,r(60,150,40,25,2)),m(B,r(225,150,45,25,2)),m(L,r(10,175,300,10,2))]}
   ]);
+  /* Âm thanh (tạo bằng Web Audio, không cần tệp ngoài) */
+  var ac=null, muted=false;
+  function audio(){
+    if(!ac){ try{ ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+    if(ac&&ac.state==='suspended'){ ac.resume(); }
+    return ac;
+  }
+  function tone(f,t0,d,type,vol){
+    var a=audio(); if(!a||muted) return;
+    var o=a.createOscillator(), g=a.createGain(), s=a.currentTime+t0;
+    o.type=type||'sine'; o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,s);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,s+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,s+d);
+    o.connect(g); g.connect(a.destination); o.start(s); o.stop(s+d+0.05);
+  }
+  function sfxOk(){ tone(659,0,.14,'triangle',.28); tone(988,.09,.3,'triangle',.28); tone(1319,.2,.12,'sine',.1); }
+  function sfxBad(){ tone(240,0,.18,'square',.09); tone(180,.14,.3,'square',.09); }
+  function sfxWin(){
+    var n=[523,659,784,1047,784,1047,1319,1568], t=[0,.15,.3,.45,.7,.85,1,1.2], i;
+    for(i=0;i<n.length;i++) tone(n[i],t[i],i===n.length-1?.8:.22,'triangle',.3);
+    tone(262,0,1.8,'sine',.12); tone(392,.45,1.6,'sine',.1);
+  }
+  function sfxEnd(){ tone(523,0,.25,'triangle',.25); tone(659,.15,.25,'triangle',.25); tone(784,.3,.5,'triangle',.25); }
+  document.getElementById('mute').addEventListener('click',function(){
+    muted=!muted;
+    this.setAttribute('aria-pressed',muted?'true':'false');
+    this.textContent=muted?'🔇 Tắt tiếng':'🔊 Có tiếng';
+    if(!muted) sfxOk();
+  });
+
+  /* Hiệu ứng ăn mừng: pháo giấy */
+  var fx=document.getElementById('fx'), fctx=fx.getContext('2d'), parts=[], raf=0, fxT=[], pending=0;
+  function sizeFx(){
+    var d=window.devicePixelRatio||1;
+    fx.width=innerWidth*d; fx.height=innerHeight*d; fctx.setTransform(d,0,0,d,0,0);
+  }
+  window.addEventListener('resize',sizeFx);
+  function stopFx(){
+    var i; for(i=0;i<fxT.length;i++) clearTimeout(fxT[i]);
+    fxT=[]; pending=0; parts=[]; cancelAnimationFrame(raf);
+    fctx.clearRect(0,0,innerWidth,innerHeight);
+  }
+  function burst(n,x,y){
+    var cols=[R,Y,B,G,O,P], i;
+    for(i=0;i<n;i++) parts.push({x:x,y:y,vx:(Math.random()-.5)*14,vy:-Math.random()*13-5,g:.3,w:6+Math.random()*6,h:8+Math.random()*8,rot:Math.random()*6,vr:(Math.random()-.5)*.35,col:cols[i%6],life:0,max:130+Math.random()*60});
+  }
+  function rain(n){
+    var cols=[R,Y,B,G,O,P], i;
+    for(i=0;i<n;i++) parts.push({x:Math.random()*innerWidth,y:-10-Math.random()*80,vx:(Math.random()-.5)*2,vy:2+Math.random()*3,g:.02,w:6+Math.random()*6,h:8+Math.random()*8,rot:Math.random()*6,vr:(Math.random()-.5)*.3,col:cols[i%6],life:0,max:220});
+  }
+  function later(fn,ms){
+    pending++;
+    fxT.push(setTimeout(function(){ pending--; fn(); loop(); },ms));
+  }
+  function loop(){
+    cancelAnimationFrame(raf);
+    fctx.clearRect(0,0,innerWidth,innerHeight);
+    var i, o;
+    for(i=parts.length-1;i>=0;i--){
+      o=parts[i]; o.vy+=o.g; o.vx*=.99; o.x+=o.vx; o.y+=o.vy; o.rot+=o.vr; o.life++;
+      if(o.y>innerHeight+20||o.life>o.max){ parts.splice(i,1); continue; }
+      fctx.save(); fctx.globalAlpha=o.life>o.max*.8?(o.max-o.life)/(o.max*.2):1;
+      fctx.translate(o.x,o.y); fctx.rotate(o.rot); fctx.fillStyle=o.col;
+      fctx.fillRect(-o.w/2,-o.h/2,o.w,o.h); fctx.restore();
+    }
+    if(parts.length||pending>0) raf=requestAnimationFrame(loop);
+  }
+  function celebrate(full){
+    if(full) sfxWin(); else sfxEnd();
+    if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    sizeFx(); stopFx();
+    var w=innerWidth, h=innerHeight, k=full?70:25;
+    burst(k,w*.15,h*.75); burst(k,w*.85,h*.75);
+    if(full){
+      later(function(){ burst(60,w*.5,h*.8); },500);
+      later(function(){ rain(90); },900);
+      later(function(){ burst(60,w*.25,h*.7); burst(60,w*.75,h*.7); },1400);
+    }
+    loop();
+  }
   function cap1(s){return s.charAt(0).toUpperCase()+s.slice(1)}
   function pickModel(){
     var i; do{ i=rnd(0,MODELS.length-1); }while(i===lastModel);
@@ -221,9 +308,10 @@ button.go:active{transform:translateY(4px);box-shadow:0 1px 0 var(--shadow)}
   function finish(){
     $("play").hidden=true; $("end").hidden=false; stats();
     var full=right===TOTAL;
+    celebrate(full);
     $("legoBox").classList.toggle("done",full);
     $("cap").textContent=full?cap1(model.n)+" Lego đã hoàn thành!":"Con xây được "+right+"/10 mảnh "+model.n;
-    $("endTitle").textContent=full?"Hoàn hảo! 10/10":"Con đúng "+right+"/10 câu";
+    $("endTitle").textContent=full?"🎉 Hoàn hảo! 10/10":"Con đúng "+right+"/10 câu";
     $("endText").textContent=full?"Con đã xây xong "+model.n+" Lego. Giỏi quá!":"Chơi lại để xây một hình mới nhé!";
   }
   function advance(delay){
@@ -238,16 +326,16 @@ button.go:active{transform:translateY(4px);box-shadow:0 1px 0 var(--shadow)}
     if(v===""){ setMsg("Con nhập đáp án trước nhé!","bad"); ans.focus(); return; }
     locked=true;
     if(parseInt(v,10)===answer){
-      right++; $("right").textContent=right; drawLego(right,right-1);
+      right++; $("right").textContent=right; drawLego(right,right-1); sfxOk();
       setMsg(praise[rnd(0,praise.length-1)],"ok"); advance(1200);
     } else {
-      setMsg("Chưa đúng. Đáp án là "+answer,"bad");
+      setMsg("Chưa đúng. Đáp án là "+answer,"bad"); sfxBad();
       problem.classList.remove("shake"); void problem.offsetWidth; problem.classList.add("shake");
       advance(2200);
     }
   }
   function start(){
-    q=0; right=0; locked=false;
+    q=0; right=0; locked=false; stopFx();
     $("play").hidden=false; $("end").hidden=true;
     $("legoBox").classList.remove("done");
     pickModel();
